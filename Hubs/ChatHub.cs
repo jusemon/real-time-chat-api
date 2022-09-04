@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
+using RealTimeChat.Models;
 using SignalRSwaggerGen.Attributes;
 
 namespace RealTimeChat.Hubs
@@ -7,13 +8,11 @@ namespace RealTimeChat.Hubs
     {
         Task ListUsers(string[] users);
 
-        Task StartedConversation(string fromUser, string toUser);
+        Task RequestedPublicKey(Interaction interaction);
 
-        Task RequestedPublicKey(string fromUser, string toUser);
+        Task ReceivedPublicKey(PublicKeyInteraction publicKeyInteraction);
 
-        Task ReceivedPublicKey(string fromUser, string toUser, string publicKey);
-
-        Task ReceivedMessage(string fromUser, string toUser, string message);
+        Task ReceivedMessage(MessageInteraction messageInteraction);
     }
 
     [SignalRHub]
@@ -23,24 +22,40 @@ namespace RealTimeChat.Hubs
 
         public async Task Init(string user)
         {
+            if(Users.ContainsKey(user)) {
+                Users.Remove(user);
+            }
+
             Users.Add(user, Context.ConnectionId);
             await Clients.All.ListUsers(Users.Keys.ToArray());
         }
 
-        public async Task StartConversation(string fromUser, string toUser)
+        public async Task StartConversation(string toUser)
         {
-            await Clients.Client(Users[toUser]).RequestedPublicKey(fromUser, toUser);
-            await Clients.Client(Users[fromUser]).RequestedPublicKey(toUser, fromUser);
+            if (Users.ContainsValue(Context.ConnectionId))
+            {
+                var fromUser = Users.First(user => user.Value == Context.ConnectionId).Key;
+                await Clients.Client(Users[toUser]).RequestedPublicKey(new Interaction { FromUser = fromUser, ToUser = toUser });
+                await Clients.Client(Users[fromUser]).RequestedPublicKey(new Interaction { FromUser = toUser, ToUser = fromUser });
+            }
         }
 
-        public async Task SendPublicKey(string fromUser, string toUser, string publicKey)
+        public async Task SendPublicKey(string toUser, string publicKey)
         {
-            await Clients.Client(Users[toUser]).ReceivedPublicKey(fromUser, toUser, publicKey);
+            if (Users.ContainsValue(Context.ConnectionId))
+            {
+                var fromUser = Users.First(user => user.Value == Context.ConnectionId).Key;
+                await Clients.Client(Users[toUser]).ReceivedPublicKey(new PublicKeyInteraction { FromUser = fromUser, ToUser = toUser, PublicKey = publicKey });
+            }
         }
 
-        public async Task SendMessage(string fromUser, string toUser, string message)
+        public async Task SendMessage(string toUser, List<byte> message)
         {
-            await Clients.Client(Users[toUser]).ReceivedMessage(fromUser, toUser, message);
+            if (Users.ContainsValue(Context.ConnectionId))
+            {
+                var fromUser = Users.First(user => user.Value == Context.ConnectionId).Key;
+                await Clients.Client(Users[toUser]).ReceivedMessage(new MessageInteraction { FromUser = fromUser, ToUser = toUser, Message = message });
+            }
         }
 
         public override async Task OnDisconnectedAsync(Exception? exception)
